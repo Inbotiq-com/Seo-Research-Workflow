@@ -28,6 +28,7 @@ git clone https://github.com/Inbotiq-com/Seo-Research-Workflow.git
 cd Seo-Research-Workflow
 ```
 
+
 ### 2. Backend Setup
 
 ```sh
@@ -44,6 +45,19 @@ npm install
   - `WORKFLOW_ID=...`
   - `WEBHOOK_URL=...`
   - `EXTERNAL_URL=...`
+
+#### (Optional) Exposing Local Backend with ngrok
+
+If you want to expose your local backend server to the internet (for webhooks or external integrations), you can use [ngrok](https://ngrok.com/):
+
+```sh
+ngrok http 3001
+```
+
+After running ngrok, copy the generated HTTPS URL and update the following variables in your `.env` file:
+- `EXTERNAL_URL=<your-ngrok-url>`
+
+Replace `<your-ngrok-url>` with the actual URL provided by ngrok (e.g., `https://abcd1234.ngrok.io`).
 
 #### Start the Backend
 
