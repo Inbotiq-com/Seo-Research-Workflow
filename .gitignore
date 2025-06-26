@@ -1,0 +1,42 @@
+# Node.js
+node_modules/
+.DS_Store
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Logs
+logs
+*.log
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Build output
+dist/
+build/
+# Only ignore Next.js build output in frontend
+frontend/.next
+
+# Test coverage
+coverage/
+
+# VSCode
+.vscode/
+
+# Misc
+*.local
+*.sublime-workspace
+*.sublime-project
+
+# Tailwind output
+frontend/test-output.css
+
+# Ignore by pattern
+*.bak
+*.tmp
+
+# Ignore backend test payload
+backend/node_modules
+frontend/node_modules
