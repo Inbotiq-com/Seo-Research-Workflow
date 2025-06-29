@@ -190,6 +190,42 @@ const RichText = ({ text = '' }) => {
   });
 };
 
+
+/* ------------------------------------------------------------------ */
+/*  Deduplication Helper                                              */
+/* ------------------------------------------------------------------ */
+
+// Deduplicate sections by heading, merging content and tables
+const deduplicateSections = (sections) => {
+  const seen = new Set();
+  const deduplicated = [];
+  sections.forEach((section) => {
+    if (!seen.has(section.heading)) {
+      seen.add(section.heading);
+      deduplicated.push({ ...section });
+    } else {
+      const existingIndex = deduplicated.findIndex(s => s.heading === section.heading);
+      if (existingIndex !== -1) {
+        // Combine content
+        deduplicated[existingIndex].content =
+          (deduplicated[existingIndex].content || '') +
+          (section.content ? '\n\n' + section.content : '');
+        // Use table from the section that has it
+        if (section.table && section.table !== 'N/A') {
+          deduplicated[existingIndex].table = section.table;
+        }
+        // Combine additional_content
+        if (section.additional_content) {
+          deduplicated[existingIndex].additional_content =
+            (deduplicated[existingIndex].additional_content || '') +
+            '\n\n' + section.additional_content;
+        }
+      }
+    }
+  });
+  return deduplicated;
+};
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                         */
 /* ------------------------------------------------------------------ */
@@ -241,14 +277,15 @@ export default function KeywordStrategyReview({
     <ScrollArea className="pr-4">
       <Card className="border-none shadow-none text-white">
         {/* ---------------- Sections ---------------- */}
-        {strategy.sections
-          ?.filter(
-            (sec) =>
-              !sec.heading.toLowerCase().includes('seo title') && // hide Proposed SEO Titles
-              !sec.heading.toLowerCase().includes('proposed seo')
-          )
-          .map((sec, idx) => {
-            /* pull table & remaining text */
+        {strategy?.sections &&
+          deduplicateSections(
+            strategy.sections.filter(
+              (sec) =>
+                !sec.heading.toLowerCase().includes('seo title') &&
+                !sec.heading.toLowerCase().includes('proposed seo')
+            )
+          ).map((sec, idx, arr) => {
+            // ...existing code for section rendering...
             let mdTable = sec.table?.trim() || '';
             let remainingText = sec.additional_content || '';
 
@@ -302,9 +339,7 @@ export default function KeywordStrategyReview({
                   )}
                 </CardContent>
 
-                {idx !== strategy.sections.length - 1 && (
-                  <Separator className="my-6" />
-                )}
+                {idx !== arr.length - 1 && <Separator className="my-6" />}
               </div>
             );
           })}
