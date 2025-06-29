@@ -117,14 +117,7 @@ export default function Home() {
           <p className="text-xl md:text-2xl text-slate-300 mb-8 max-w-3xl mx-auto">
             Start a new SEO content workflow to supercharge your content strategy.
           </p>
-          <Button
-            onClick={handleTestConnection}
-            variant="outline"
-            className="bg-green-600 border-green-500 text-white hover:bg-green-700 shadow-lg px-6 py-3 text-lg"
-          >
-            <CheckCircle className="mr-2 w-5 h-5" />
-            Test Backend Connection
-          </Button>
+          {/* Test Backend Connection button removed */}
         </div>
 
         {/* Error Display */}

@@ -1,275 +1,358 @@
-import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+/* KeywordStrategyReview.jsx */
+import React, { useState } from 'react';
+
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from './ui/card';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
-import { Badge } from './ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from './ui/table';
 import { ScrollArea } from './ui/scroll-area';
 import { Separator } from './ui/separator';
-import { Target, CheckCircle, RefreshCw, AlertTriangle, FileText, TrendingUp, Users, Settings, Award } from 'lucide-react';
 
-const getSectionIcon = (heading) => {
-    // Using text-primary for theme-aware icon coloring
-    if (heading.toLowerCase().includes('executive')) return <FileText className="h-5 w-5 text-primary" />;
-    if (heading.toLowerCase().includes('keyword')) return <Target className="h-5 w-5 text-primary" />;
-    if (heading.toLowerCase().includes('competitive')) return <Users className="h-5 w-5 text-primary" />;
-    if (heading.toLowerCase().includes('content')) return <Settings className="h-5 w-5 text-primary" />;
-    if (heading.toLowerCase().includes('titles')) return <Award className="h-5 w-5 text-primary" />;
-    return <TrendingUp className="h-5 w-5 text-primary" />;
+import {
+  Target,
+  TrendingUp,
+  Users,
+  FileText,
+  Award,
+  Settings,
+} from 'lucide-react';
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                           */
+/* ------------------------------------------------------------------ */
+
+const getSectionIcon = (heading = '') => {
+  const h = heading.toLowerCase();
+
+  if (h.includes('executive')) return <Target className="h-4 w-4 text-primary" />;
+  if (h.includes('keyword')) return <TrendingUp className="h-4 w-4 text-primary" />;
+  if (h.includes('competitive')) return <Users className="h-4 w-4 text-primary" />;
+  if (h.includes('content outline')) return <FileText className="h-4 w-4 text-primary" />;
+  if (h.includes('title')) return <Award className="h-4 w-4 text-primary" />;
+
+  return <Settings className="h-4 w-4 text-primary" />;
 };
 
-const formatContent = (content) => {
-    if (!content) return '';
+/* -------- obtain first markdown-table + residual text -------------- */
+const extractMarkdownTable = (text = '') => {
+  if (!text) return null;
 
-    return content
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\n/g, '<br/>')
-        .replace(/▪️/g, '• ');
+  const lines = text.split('\n');
+  let start = -1;
+  let end = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes('|')) {
+      if (start === -1) start = i;
+      end = i;
+    } else if (start !== -1) {
+      break; // contiguous block finished
+    }
+  }
+
+  if (start === -1) return null;
+
+  const tableLines = lines.slice(start, end + 1);
+  const tableString = tableLines.join('\n').trim();
+  const cleanedText = [...lines.slice(0, start), ...lines.slice(end + 1)]
+    .join('\n')
+    .trim();
+
+  return { tableString, cleanedText };
 };
 
-const parseTable = (tableString) => {
-    if (!tableString || tableString.trim() === '') return null;
+const parseTable = (tableString = '') => {
+  if (!tableString) return null;
 
-    const lines = tableString.split('\n').filter(line => line.trim() !== '' && !line.includes('---'));
-    if (lines.length < 2) return null; // Need at least header and one row
-
-    const headers = lines[0].split('|').filter(cell => cell.trim() !== '').map(cell => cell.trim());
-    const rows = lines.slice(1).map(line =>
-        line.split('|').filter(cell => cell.trim() !== '').map(cell => cell.trim())
+  const rows = tableString
+    .split('\n')
+    .filter(Boolean)
+    .map((r) =>
+      r
+        .split('|')
+        .filter(Boolean)
+        .map((c) => c.trim())
     );
 
-    return { headers, rows };
+  if (rows.length < 2) return null; // header + at least one row required
+
+  return {
+    headers: rows[0],
+    rows: rows.slice(1),
+  };
 };
 
-export default function KeywordStrategyReview({ executionId, workflowStatus, onApproval, processing }) {
-    const [feedback, setFeedback] = useState('');
-    const [isProcessing, setIsProcessing] = useState(false);
+/* ---------- inline markdown (**bold**, *italic*) renderer ---------- */
+const inlineMd = (str = '') => {
+  const out = [];
+  const regex = /(\*\*([^*]+)\*\*)|(\*([^*]+)\*)/g;
+  let idx = 0;
+  let last = 0;
+  let m;
 
-    const strategy = workflowStatus?.keyword_strategy;
-    const attemptNumber = workflowStatus?.attempt_number || 1;
+  while ((m = regex.exec(str)) !== null) {
+    if (m.index > last) out.push(str.slice(last, m.index));
+    if (m[1]) out.push(<strong key={idx++}>{m[2]}</strong>);
+    else if (m[3]) out.push(<em key={idx++}>{m[4]}</em>);
+    last = regex.lastIndex;
+  }
+  if (last < str.length) out.push(str.slice(last));
+  return out;
+};
 
-    const handleAction = async (action) => {
-        if (isProcessing || processing) {
-            console.log('Action already in progress, ignoring click');
-            return;
-        }
+/* ---------- render paragraphs & lists with extra keyword markup ----- */
+const RichText = ({ text = '' }) => {
+  if (!text) return null;
 
-        setIsProcessing(true);
-        try {
-            const payload = {
-                action: action,
-                strategy_feedback: feedback.trim()
-            };
+  const blocks = text.split(/\n{2,}/); // split on double line-breaks
 
-            console.log('Sending action payload:', payload);
-            await onApproval(payload);
+  /* transforms "* Target Keywords: ..." fragments */
+  const renderLine = (line) => {
+    const kwMatch = line.match(/\s\*\s*Target Keywords\s*:\s*(.*)/i);
 
-            if (action === 'approve') {
-                setFeedback('');
-            }
-        } catch (error) {
-            console.error('Failed to process action:', error);
-            alert(`Failed to process request: ${error.message}`);
-        } finally {
-            setIsProcessing(false);
-        }
-    };
+    if (kwMatch) {
+      const pre = line.slice(0, kwMatch.index).trim();
+      const kws = kwMatch[1].trim();
 
-    if (!strategy) {
-        return (
-            <Card className="w-full max-w-4xl mx-auto">
-                <CardContent className="flex items-center justify-center p-12">
-                    <div className="flex flex-col items-center space-y-3 text-muted-foreground">
-                        <RefreshCw className="h-6 w-6 animate-spin" />
-                        <span className="text-lg font-medium">Generating keyword strategy...</span>
-                        <p>This may take a moment. Please wait.</p>
-                    </div>
-                </CardContent>
-            </Card>
-        );
+      return (
+        <>
+          {inlineMd(pre)}
+          {' — '}
+          <span className="italic text-sm text-gray-300">
+            Target Keywords: {kws}
+          </span>
+        </>
+      );
     }
 
-    let parsedStrategy;
-    try {
-        parsedStrategy = typeof strategy === 'string' ? JSON.parse(strategy) : strategy;
-    } catch (error) {
-        console.error('Failed to parse strategy:', error);
-        return (
-            <Card className="w-full max-w-4xl mx-auto border-l-4 border-destructive">
-                <CardContent className="p-8">
-                    <div className="flex items-center space-x-3 text-destructive">
-                        <AlertTriangle className="h-6 w-6" />
-                        <div>
-                            <p className="font-bold">Error Parsing Strategy Data</p>
-                            <p className="text-sm">Could not display the content. Please check the data format.</p>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-        );
+    return inlineMd(line);
+  };
+
+  return blocks.map((blk, i) => {
+    const lines = blk.split('\n').filter(Boolean);
+
+    /* unordered list (- or * as bullet) */
+    const isBulletBlock = lines.every((ln) => ln.trim().match(/^[-*]\s+/));
+
+    if (isBulletBlock) {
+      const items = lines.map((ln) => ln.replace(/^[-*]\s+/, '').trim());
+
+      return (
+        <ul
+          key={i}
+          className="mb-4 list-disc pl-6 leading-7 text-base text-white"
+        >
+          {items.map((it, j) => (
+            <li key={j}>{renderLine(it)}</li>
+          ))}
+        </ul>
+      );
     }
 
-    const sections = (parsedStrategy.sections || []).filter(
-        section => !section.heading?.toLowerCase().includes('titles')
-    );
+    /* ordered lists (1., 2.) */
+    const isOrdered = lines.every((ln) => ln.trim().match(/^\d+\.\s+/));
 
+    if (isOrdered) {
+      const items = lines.map((ln) => ln.replace(/^\d+\.\s+/, '').trim());
+
+      return (
+        <ol
+          key={i}
+          className="mb-4 list-decimal pl-6 leading-7 text-base text-white"
+        >
+          {items.map((it, j) => (
+            <li key={j}>{renderLine(it)}</li>
+          ))}
+        </ol>
+      );
+    }
+
+    /* plain paragraph block */
     return (
-        <div className="w-full max-w-6xl mx-auto space-y-8 p-4">
-            {/* Header */}
-            <Card className="border-l-4 border-primary shadow-sm">
-                <CardHeader>
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <CardTitle className="text-3xl font-bold text-foreground">SEO Keyword Strategy Review</CardTitle>
-                            <CardDescription className="text-base text-muted-foreground mt-1">
-                                Attempt #{attemptNumber} • Review the generated strategy below and take action.
-                            </CardDescription>
-                        </div>
-                        <Badge variant="outline" className="text-sm py-1 px-3">
-                            <Target className="h-4 w-4 mr-2" />
-                            Strategy Generated
-                        </Badge>
-                    </div>
-                </CardHeader>
-            </Card>
-
-            {/* Strategy Sections */}
-            <div className="space-y-6">
-                {sections.map((section, index) => {
-                    const tableData = parseTable(section.table);
-
-                    return (
-                        <Card key={index} className="shadow-sm hover:shadow-lg transition-shadow duration-300">
-                            <CardHeader className="pb-4">
-                                <div className="flex items-center space-x-4">
-                                    <div className="p-3 bg-primary/10 rounded-lg">
-                                        {getSectionIcon(section.heading)}
-                                    </div>
-                                    <CardTitle className="text-xl font-bold text-foreground">
-                                        {section.heading.replace(/^\d+\.\s*/, '').replace(/^#+\s*/, '')}
-                                    </CardTitle>
-                                </div>
-                            </CardHeader>
-
-                            <CardContent className="space-y-6 pt-2">
-                                {/* Section Content */}
-                                {section.content && (
-                                    <div
-                                        className="prose prose-slate dark:prose-invert max-w-none text-foreground/90 leading-relaxed"
-                                        dangerouslySetInnerHTML={{
-                                            __html: formatContent(section.content)
-                                        }}
-                                    />
-                                )}
-
-                                {/* Table */}
-                                {tableData && (
-                                    <div className="mt-4">
-                                        <ScrollArea className="border rounded-lg max-h-[500px]">
-                                            <Table>
-                                                <TableHeader>
-                                                    <TableRow className="bg-muted hover:bg-muted">
-                                                        {tableData.headers.map((header, i) => (
-                                                            <TableHead key={i} className="font-semibold text-muted-foreground">
-                                                                {header}
-                                                            </TableHead>
-                                                        ))}
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {tableData.rows.map((row, rowIndex) => (
-                                                        <TableRow key={rowIndex} className="hover:bg-muted/50">
-                                                            {row.map((cell, cellIndex) => (
-                                                                <TableCell
-                                                                    key={cellIndex}
-                                                                    className="align-top"
-                                                                    dangerouslySetInnerHTML={{
-                                                                        __html: formatContent(cell)
-                                                                    }}
-                                                                />
-                                                            ))}
-                                                        </TableRow>
-                                                    ))}
-                                                </TableBody>
-                                            </Table>
-                                        </ScrollArea>
-                                    </div>
-                                )}
-
-                                {/* Additional Content - NOW ALWAYS DARK for emphasis */}
-                                {section.additional_content && (
-                                    <div
-                                        className="mt-4 prose prose-invert max-w-none leading-relaxed bg-slate-800 border border-slate-700 text-slate-200 p-5 rounded-lg"
-                                        dangerouslySetInnerHTML={{
-                                            __html: formatContent(section.additional_content)
-                                        }}
-                                    />
-                                )}
-                            </CardContent>
-
-                            {index < sections.length - 1 && sections.length > 1 && (
-                                <div className="px-6 pb-2">
-                                    <Separator />
-                                </div>
-                            )}
-                        </Card>
-                    );
-                })}
-            </div>
-
-            {/* Action Panel */}
-            <Card className="bg-slate-900 text-slate-50 border-t-4 border-green-500 shadow-2xl">
-                <CardHeader>
-                    <CardTitle className="text-xl font-semibold text-slate-50">Review & Take Action</CardTitle>
-                    <CardDescription className="text-slate-400">
-                        Approve the strategy or request a revision with your feedback.
-                    </CardDescription>
-                </CardHeader>
-
-                <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="feedback" className="text-sm font-medium text-slate-300">
-                            Feedback (Required for revision)
-                        </Label>
-                        <Textarea
-                            id="feedback"
-                            placeholder="Provide specific, actionable feedback for improvement..."
-                            value={feedback}
-                            onChange={(e) => setFeedback(e.target.value)}
-                            className="min-h-[120px] resize-y bg-slate-800 border-slate-600 text-slate-50 placeholder:text-slate-500 focus:ring-1 focus:ring-offset-0 focus:ring-blue-500"
-                            disabled={isProcessing || processing}
-                        />
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 pt-2">
-                        <Button
-                            onClick={() => handleAction('approve')}
-                            disabled={isProcessing || processing}
-                            className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold text-base py-6 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <CheckCircle className="h-5 w-5 mr-2" />
-                            {isProcessing ? 'Processing...' : 'Approve Strategy'}
-                        </Button>
-
-                        <Button
-                            onClick={() => handleAction('reject')}
-                            disabled={isProcessing || processing || !feedback.trim()}
-                            variant="outline"
-                            className="flex-1 bg-transparent border-red-500 text-red-500 hover:bg-red-500 hover:text-white font-bold text-base py-6 transition-all duration-300 disabled:border-slate-600 disabled:text-slate-500 disabled:bg-transparent disabled:cursor-not-allowed"
-                        >
-                            <RefreshCw className="h-5 w-5 mr-2" />
-                            {isProcessing ? 'Processing...' : 'Request Revision'}
-                        </Button>
-                    </div>
-
-                    {!feedback.trim() && (
-                        <p className="text-xs text-slate-500 text-center pt-2">
-                            💡 Tip: Providing clear feedback leads to better and faster revisions.
-                        </p>
-                    )}
-                </CardContent>
-            </Card>
-        </div>
+      <p key={i} className="mb-4 leading-7 text-base text-white">
+        {renderLine(blk)}
+      </p>
     );
+  });
+};
+
+/* ------------------------------------------------------------------ */
+/*  Component                                                         */
+/* ------------------------------------------------------------------ */
+
+export default function KeywordStrategyReview({
+  executionId,
+  workflowStatus,
+  onApproval,
+  processing,
+}) {
+  const [feedback, setFeedback] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const strategy = workflowStatus?.keyword_strategy;
+  const attemptNumber = workflowStatus?.attempt_number ?? 1;
+
+  /* -------------------------------------------------------------- */
+  /*  Actions                                                       */
+  /* -------------------------------------------------------------- */
+
+  const handleAction = async (action) => {
+    if (isProcessing || processing) return;
+
+    setIsProcessing(true);
+    try {
+      await onApproval({
+        action,
+        strategy_feedback: feedback.trim(),
+      });
+      if (action === 'approve') setFeedback('');
+    } catch (err) {
+      console.error(err);
+      alert(`Failed to process request: ${err.message}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  /* -------------------------------------------------------------- */
+
+  if (!strategy)
+    return (
+      <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+        This may take a moment. Please wait.
+      </div>
+    );
+
+  return (
+    <ScrollArea className="pr-4">
+      <Card className="border-none shadow-none text-white">
+        {/* ---------------- Sections ---------------- */}
+        {strategy.sections
+          ?.filter(
+            (sec) =>
+              !sec.heading.toLowerCase().includes('seo title') && // hide Proposed SEO Titles
+              !sec.heading.toLowerCase().includes('proposed seo')
+          )
+          .map((sec, idx) => {
+            /* pull table & remaining text */
+            let mdTable = sec.table?.trim() || '';
+            let remainingText = sec.additional_content || '';
+
+            if (!mdTable) {
+              const res = extractMarkdownTable(sec.additional_content);
+              mdTable = res?.tableString || '';
+              remainingText = res?.cleanedText || remainingText;
+            }
+
+            const tableData = parseTable(mdTable);
+
+            return (
+              <div key={idx}>
+                {/* Heading */}
+                <CardHeader className="flex flex-row items-center gap-2">
+                  {getSectionIcon(sec.heading)}
+                  <CardTitle className="text-lg text-white">
+                    {sec.heading.replace(/^##\s*/, '')}
+                  </CardTitle>
+                </CardHeader>
+
+                {/* Body */}
+                <CardContent className="space-y-4">
+                  {sec.content && <RichText text={sec.content} />}
+                  {remainingText && <RichText text={remainingText} />}
+
+                  {tableData && (
+                    <Table className="mt-2 text-sm text-white">
+                      <TableHeader>
+                        <TableRow>
+                          {tableData.headers.map((h, i) => (
+                            <TableHead key={i} className="text-white">
+                              {inlineMd(h)}
+                            </TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+
+                      <TableBody>
+                        {tableData.rows.map((row, rIdx) => (
+                          <TableRow key={rIdx}>
+                            {row.map((cell, cIdx) => (
+                              <TableCell key={cIdx} className="text-white">
+                                {inlineMd(cell)}
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+
+                {idx !== strategy.sections.length - 1 && (
+                  <Separator className="my-6" />
+                )}
+              </div>
+            );
+          })}
+
+        {/* ---------------- Feedback & Actions ---------------- */}
+        <Separator className="my-4" />
+
+        <CardContent>
+          <Label
+            htmlFor="feedback"
+            className="mb-2 block text-white font-semibold"
+          >
+            Feedback&nbsp;(optional)
+          </Label>
+
+          <Textarea
+            id="feedback"
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            placeholder="Let the AI know what should be changed or improved…"
+            className="mb-6 text-white placeholder:text-gray-400"
+          />
+
+          <div className="flex gap-4">
+            <Button
+              variant="outline"
+              className="border-yellow-400 text-yellow-400 font-bold px-6 py-2"
+              disabled={isProcessing || processing}
+              onClick={() => handleAction('reject')}
+            >
+              Request&nbsp;Revision
+            </Button>
+
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white font-bold px-6 py-2"
+              disabled={isProcessing || processing}
+              onClick={() => handleAction('approve')}
+            >
+              Approve
+            </Button>
+          </div>
+        </CardContent>
+
+        <CardDescription className="p-4 text-xs text-gray-400">
+          Attempt #{attemptNumber} &nbsp;|&nbsp; Execution&nbsp;ID:&nbsp;
+          {executionId}
+        </CardDescription>
+      </Card>
+    </ScrollArea>
+  );
 }

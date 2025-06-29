@@ -6,6 +6,8 @@ import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { Spinner } from './ui/spinner';
+import { ScrollArea } from './ui/scroll-area';
+import { Separator } from './ui/separator';
 import { 
   Search, 
   CheckCircle, 
@@ -17,28 +19,129 @@ import {
   FileText, 
   ExternalLink, 
   BookOpen, 
-  Quote,
-  Clock,
-  TrendingUp,
-  Database,
-  Globe,
-  Lightbulb,
-  Sparkles,
-  BarChart3,
-  Brain,
-  Layers,
-  Shield
+  Quote, 
+  Clock, 
+  TrendingUp, 
+  Database, 
+  Globe, 
+  Lightbulb, 
+  Sparkles, 
+  BarChart3, 
+  Brain, 
+  Layers, 
+  Shield,
+  Hash,
+  Tag,
+  Eye,
+  Star,
+  Bookmark,
+  ChevronDown,
+  ChevronUp,
+  MousePointer2
 } from 'lucide-react';
 import { API_BASE_URL, API_ENDPOINTS } from '../lib/config';
+
+/* ------------------------------------------------------------------ */
+/* Helpers */
+/* ------------------------------------------------------------------ */
+
+const getSectionIcon = (heading = '') => {
+  const h = heading.toLowerCase();
+  if (h.includes('source')) return <Globe className="h-4 w-4" />;
+  if (h.includes('topic')) return <Target className="h-4 w-4" />;
+  if (h.includes('idea')) return <Lightbulb className="h-4 w-4" />;
+  if (h.includes('research')) return <Search className="h-4 w-4" />;
+  if (h.includes('insight')) return <Brain className="h-4 w-4" />;
+  if (h.includes('content')) return <FileText className="h-4 w-4" />;
+  if (h.includes('keyword')) return <Hash className="h-4 w-4" />;
+  return <FileText className="h-4 w-4" />;
+};
+
+const truncateUrl = (url, maxLength = 50) => {
+  if (!url || url.length <= maxLength) return url;
+  return url.substring(0, maxLength) + '...';
+};
+
+/* Inline markdown-style text processing */
+const inlineMd = (str = '') => {
+  if (!str) return null;
+  const regex = /(\*\*([^*]+)\*\*)|(\*([^*]+)\*)/g;
+  const out = [];
+  let last = 0;
+  let m;
+  
+  while ((m = regex.exec(str))) {
+    if (m.index > last) out.push(str.slice(last, m.index));
+    if (m[2]) out.push(<strong key={m.index}>{m[2]}</strong>);
+    else if (m[4]) out.push(<em key={m.index}>{m[4]}</em>);
+    last = regex.lastIndex;
+  }
+  
+  if (last < str.length) out.push(str.slice(last));
+  return out;
+};
+
+/* Rich text renderer with markdown support */
+const RichText = ({ text = '' }) => {
+  if (!text) return null;
+  const blocks = text.split(/\n{2,}/);
+  
+  const renderLine = (line) => {
+    const kwMatch = line.match(/\s\*\s*Target Keywords\s*:\s*(.*)/i);
+    if (kwMatch) {
+      const pre = line.slice(0, kwMatch.index).trim();
+      const kws = kwMatch[1].trim();
+      return (
+        <>
+          {inlineMd(pre)}
+          {' — '}
+          <Badge variant="secondary" className="ml-1">
+            Target Keywords: {kws}
+          </Badge>
+        </>
+      );
+    }
+    return inlineMd(line);
+  };
+
+  return blocks.map((blk, i) => {
+    const lines = blk.split('\n').filter(Boolean);
+    const isBulletBlock = lines.every((ln) => ln.trim().match(/^[-*]\s+/));
+    
+    if (isBulletBlock) {
+      const items = lines.map((ln) => ln.replace(/^[-*]\s+/, '').trim());
+      return (
+        <ul key={i} className="list-disc list-inside space-y-2 mb-4 text-sm text-muted-foreground">
+          {items.map((item, j) => (
+            <li key={j} className="leading-relaxed">{renderLine(item)}</li>
+          ))}
+        </ul>
+      );
+    }
+    
+    return (
+      <p key={i} className="mb-4 text-sm text-muted-foreground leading-relaxed">
+        {renderLine(blk)}
+      </p>
+    );
+  });
+};
+
+/* ------------------------------------------------------------------ */
+/* Component */
+/* ------------------------------------------------------------------ */
 
 export default function ResearchReview({ executionId, workflowStatus, onApproval, processing }) {
   const [researchFeedback, setResearchFeedback] = useState('');
   const [rejectionFeedback, setRejectionFeedback] = useState('');
   const [loading, setLoading] = useState(false);
   const [showRejectionForm, setShowRejectionForm] = useState(false);
+  const [showAllSources, setShowAllSources] = useState(false);
 
   const handleAction = async (action) => {
+    if (loading || processing) return;
     setLoading(true);
+    
     try {
       const payload = {
         action: action,
@@ -50,6 +153,7 @@ export default function ResearchReview({ executionId, workflowStatus, onApproval
       
       if (action === 'approve') {
         console.log('Research approved successfully');
+        setResearchFeedback('');
       } else {
         setShowRejectionForm(false);
         setRejectionFeedback('');
@@ -62,508 +166,519 @@ export default function ResearchReview({ executionId, workflowStatus, onApproval
     }
   };
 
-  // ✅ Enhanced dark mode research data renderer
   const renderResearchData = (researchData) => {
     console.log('🔍 Received research data:', researchData);
     
     if (!researchData) {
       console.log('❌ No research data provided');
       return (
-        <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl p-6 backdrop-blur-sm">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-amber-900/50 rounded-full">
-              <AlertTriangle className="h-5 w-5 text-amber-400" />
-            </div>
-            <div>
-              <p className="text-amber-200 font-medium">No research data available</p>
-              <p className="text-amber-400/70 text-sm">Please wait for the research to complete.</p>
-            </div>
-          </div>
-        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <AlertTriangle className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No research data available</h3>
+            <p className="text-muted-foreground text-center">
+              Please wait for the research to complete.
+            </p>
+          </CardContent>
+        </Card>
       );
     }
 
-    let dataArray = researchData;
-    if (!Array.isArray(researchData)) {
-      console.log('⚠️ Research data is not an array, converting:', typeof researchData);
-      dataArray = [researchData];
-    }
+    const sections = [];
 
-    if (dataArray.length === 0) {
-      console.log('❌ Research data array is empty');
-      return (
-        <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-6 backdrop-blur-sm">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-slate-800/50 rounded-full">
-              <Database className="h-5 w-5 text-slate-400" />
+    // Parse the research data - handle multiple possible structures
+    let output = researchData.output || researchData;
+    let sources = output?.Sources || researchData.sources || [];
+    let researchText = output?.text || researchData.text || researchData.research_insights || '';
+    
+    // Try multiple possible paths for selected_topic and selected_idea
+    let selectedTopic = researchData.selected_topic || output?.selected_topic;
+    let selectedIdea = researchData.selected_idea || output?.selected_idea;
+
+    // Debug logging
+    console.log('📝 Selected Topic:', selectedTopic);
+    console.log('💡 Selected Idea:', selectedIdea);
+    console.log('📄 Sources:', sources);
+    console.log('📖 Research Text:', researchText);
+
+    // Selected Topic Section - Always render first if available
+    if (selectedTopic && typeof selectedTopic === 'object') {
+      sections.push(
+        <Card key="selected-topic" className="border-l-4 border-l-blue-500">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Target className="h-5 w-5 text-blue-500" />
+              Selected Topic
+              <Badge variant="outline" className="ml-2">
+                Recommended
+              </Badge>
+            </CardTitle>
+            <CardDescription>
+              Recommended content direction and strategic approach
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-4">
+              {/* Title */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                  <FileText className="h-4 w-4" />
+                  Content Title
+                </Label>
+                <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4 shadow-sm">
+                  <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 leading-tight">
+                    {selectedTopic.title}
+                  </h3>
+                </div>
+              </div>
+
+              {/* Meta Description */}
+              {selectedTopic.meta_description && (
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                    <Eye className="h-4 w-4" />
+                    Meta Description
+                  </Label>
+                  <div className="bg-blue-100 dark:bg-blue-900/50 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+                    <p className="text-sm text-blue-800 dark:text-blue-200 italic leading-relaxed">
+                      "{selectedTopic.meta_description}"
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Content Approach */}
+              {selectedTopic.content_approach && (
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                    <BarChart3 className="h-4 w-4" />
+                    Content Approach
+                  </Label>
+                  <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                    <p className="text-sm text-blue-900 dark:text-blue-100 leading-relaxed">
+                      {selectedTopic.content_approach}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Keywords */}
+              {selectedTopic.keywords_used?.length > 0 && (
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                    <Hash className="h-4 w-4" />
+                    Target Keywords
+                  </Label>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedTopic.keywords_used.map((keyword, idx) => (
+                      <Badge 
+                        key={idx} 
+                        variant="secondary" 
+                        className="bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200 border-0"
+                      >
+                        {keyword}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            <div>
-              <p className="text-slate-200 font-medium">Research data is empty</p>
-              <p className="text-slate-400 text-sm">Please wait for processing to complete.</p>
-            </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       );
     }
 
-    return (
-      <div className="space-y-8">
-        {dataArray.map((item, index) => {
-          console.log(`📄 Processing research item ${index}:`, item);
-          
-          // Handle research findings with citations
-          if (item?.output?.text) {
-            const text = item.output.text;
-            const sources = item.output.Sources || item.output.sources || [];
-            
-            console.log(`✅ Found research findings with ${sources.length} sources`);
-            
-            const formatTextWithCitations = (text, sources) => {
-              const citationRegex = /\[(\d+)\]/g;
-              const parts = text.split(citationRegex);
-              const formattedContent = [];
+    // Selected Idea Section - Render second if available
+    if (selectedIdea && typeof selectedIdea === 'object') {
+      sections.push(
+        <Card key="selected-idea" className="border-l-4 border-l-amber-500">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Lightbulb className="h-5 w-5 text-amber-500" />
+              Selected Idea
+              <Badge variant="outline" className="ml-2">
+                Creative Concept
+              </Badge>
+            </CardTitle>
+            <CardDescription>
+              Creative concept and unique positioning strategy
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-4">
+              {/* Idea Name */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium flex items-center gap-2 text-amber-700 dark:text-amber-300">
+                  <Sparkles className="h-4 w-4" />
+                  Idea Name
+                </Label>
+                <div className="bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg p-4 shadow-sm">
+                  <h3 className="text-lg font-semibold text-amber-900 dark:text-amber-100 leading-tight">
+                    {selectedIdea.idea_name}
+                  </h3>
+                </div>
+              </div>
 
-              for (let i = 0; i < parts.length; i++) {
-                if (i % 2 === 0) {
-                  if (parts[i]) {
-                    formattedContent.push(
-                      <span key={`text-${index}-${i}`} className="text-slate-100 leading-relaxed">
-                        {parts[i]}
-                      </span>
-                    );
-                  }
-                } else {
-                  const citationNum = parseInt(parts[i]);
-                  const source = sources[citationNum - 1];
-                  
-                  formattedContent.push(
-                    <Badge 
-                      key={`citation-${index}-${i}`} 
-                      variant="outline" 
-                      className="mx-1 cursor-pointer hover:bg-blue-500/20 hover:border-blue-400/50 transition-all duration-200 text-blue-300 border-blue-500/30 bg-blue-950/30 backdrop-blur-sm"
-                      title={source?.url_citation?.title || 'Source'}
-                    >
-                      [{citationNum}]
-                    </Badge>
-                  );
-                }
-              }
-              return formattedContent;
-            };
+              {/* Description */}
+              {selectedIdea.description && (
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium flex items-center gap-2 text-amber-700 dark:text-amber-300">
+                    <FileText className="h-4 w-4" />
+                    Description
+                  </Label>
+                  <div className="bg-amber-100 dark:bg-amber-900/50 border border-amber-200 dark:border-amber-700 rounded-lg p-4">
+                    <p className="text-sm text-amber-900 dark:text-amber-100 leading-relaxed">
+                      {selectedIdea.description}
+                    </p>
+                  </div>
+                </div>
+              )}
 
-            return (
-              <Card key={`research-${index}`} className="bg-gradient-to-br from-slate-900/80 to-slate-800/60 border-l-4 border-l-blue-500 border border-slate-700/50 shadow-2xl backdrop-blur-sm hover:shadow-blue-500/10 hover:shadow-3xl transition-all duration-300">
-                <CardHeader className="pb-4 bg-gradient-to-r from-blue-950/30 to-slate-900/30 rounded-t-lg">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="p-3 bg-gradient-to-br from-blue-500/20 to-blue-600/20 rounded-xl backdrop-blur-sm border border-blue-500/30">
-                        <Brain className="h-6 w-6 text-blue-300" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-xl font-bold bg-gradient-to-r from-blue-200 to-cyan-200 bg-clip-text text-transparent">
-                          Research Intelligence
-                        </CardTitle>
-                        <CardDescription className="text-blue-300/80 text-base font-medium">
-                          Comprehensive insights from {sources.length} authoritative sources
-                        </CardDescription>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge className="bg-gradient-to-r from-blue-500/20 to-cyan-500/20 text-blue-200 border-blue-400/30 px-3 py-1">
-                        <BarChart3 className="h-3 w-3 mr-1" />
-                        {sources.length} Sources
-                      </Badge>
-                      <Badge className="bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-200 border-emerald-400/30 px-3 py-1">
-                        <Sparkles className="h-3 w-3 mr-1" />
-                        AI Analyzed
-                      </Badge>
-                    </div>
+              {/* Unique Angle */}
+              {selectedIdea.unique_angle && (
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium flex items-center gap-2 text-amber-700 dark:text-amber-300">
+                    <Star className="h-4 w-4" />
+                    Unique Angle
+                  </Label>
+                  <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                    <p className="text-sm text-amber-900 dark:text-amber-100 leading-relaxed">
+                      {selectedIdea.unique_angle}
+                    </p>
                   </div>
-                </CardHeader>
-                
-                <CardContent className="space-y-6 p-6">
-                  <div className="relative">
-                    <div className="absolute -left-2 top-0 w-1 h-full bg-gradient-to-b from-blue-500 to-cyan-500 rounded-full opacity-30"></div>
-                    <div className="max-h-96 overflow-y-auto pr-4 custom-scrollbar">
-                      <div className="text-slate-100 leading-relaxed space-y-3 text-sm font-medium pl-4">
-                        {formatTextWithCitations(text, sources)}
-                      </div>
-                    </div>
+                </div>
+              )}
+
+              {/* Target Keywords */}
+              {selectedIdea.target_keywords?.length > 0 && (
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium flex items-center gap-2 text-amber-700 dark:text-amber-300">
+                    <Tag className="h-4 w-4" />
+                    Target Keywords
+                  </Label>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedIdea.target_keywords.map((keyword, idx) => (
+                      <Badge 
+                        key={idx} 
+                        variant="secondary" 
+                        className="bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 border-0"
+                      >
+                        {keyword}
+                      </Badge>
+                    ))}
                   </div>
-                  
-                  {sources.length > 0 && (
-                    <div className="mt-8 pt-6 border-t border-slate-700/50">
-                      <div className="flex items-center gap-3 mb-6">
-                        <div className="p-2 bg-gradient-to-br from-emerald-500/20 to-green-500/20 rounded-lg">
-                          <Globe className="h-5 w-5 text-emerald-300" />
-                        </div>
-                        <div>
-                          <h4 className="text-lg font-bold text-emerald-200">Source References</h4>
-                          <p className="text-emerald-300/70 text-sm">Verified and authoritative sources</p>
-                        </div>
+                </div>
+              )}
+
+              {/* Content Gaps Addressed */}
+              {selectedIdea.content_gaps_addressed?.length > 0 && (
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium flex items-center gap-2 text-amber-700 dark:text-amber-300">
+                    <Shield className="h-4 w-4" />
+                    Content Gaps Addressed
+                  </Label>
+                  <div className="space-y-2">
+                    {selectedIdea.content_gaps_addressed.map((gap, idx) => (
+                      <div key={idx} className="flex items-start gap-3 bg-emerald-100 dark:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-700 p-3 rounded-lg">
+                        <CheckCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
+                        <span className="text-sm text-emerald-800 dark:text-emerald-200 leading-relaxed">{gap}</span>
                       </div>
-                      <div className="grid gap-4">
-                        {sources.map((source, sourceIndex) => (
-                          <div key={`source-${index}-${sourceIndex}`} className="group flex items-start gap-4 p-4 bg-gradient-to-r from-slate-800/40 to-slate-700/20 rounded-xl border border-slate-600/30 hover:border-emerald-500/40 hover:bg-gradient-to-r hover:from-emerald-950/20 hover:to-slate-800/40 transition-all duration-300 backdrop-blur-sm">
-                            <Badge variant="outline" className="text-xs font-mono bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-200 border-emerald-400/30 px-2 py-1 rounded-lg">
-                              [{sourceIndex + 1}]
-                            </Badge>
-                            <div className="flex-1 min-w-0 space-y-2">
-                              <a 
-                                href={source?.url_citation?.url} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="block text-slate-100 hover:text-emerald-300 font-semibold text-sm group-hover:text-emerald-200 transition-colors line-clamp-2"
-                              >
-                                {source?.url_citation?.title}
-                              </a>
-                              <p className="text-xs text-slate-400 group-hover:text-slate-300 transition-colors truncate">
-                                {source?.url_citation?.url}
-                              </p>
-                            </div>
-                            <ExternalLink className="h-4 w-4 text-slate-500 group-hover:text-emerald-400 transition-colors flex-shrink-0 mt-1" />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    // Research Insights Section with Fixed Dark Mode
+    if (researchText) {
+      sections.push(
+        <Card key="research-insights" className="bg-card border-border">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Brain className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              Research Insights
+              <Badge variant="outline" className="ml-2 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300">
+                Scrollable Content
+              </Badge>
+            </CardTitle>
+            <CardDescription>
+              Comprehensive analysis and findings - Scroll to explore detailed insights
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="border border-border rounded-lg overflow-hidden">
+              <ScrollArea className="h-[500px] w-full">
+                <div className="p-6 space-y-4 bg-card text-card-foreground min-h-full">
+                  <div className="prose prose-sm max-w-none prose-slate dark:prose-invert text-foreground">
+                    <RichText text={researchText} />
+                  </div>
+                </div>
+                <div className="flex justify-center py-3 border-t border-border bg-muted/50">
+                  <div className="text-xs text-muted-foreground flex items-center gap-2">
+                    <MousePointer2 className="h-3 w-3" />
+                    Scroll to explore more research content
+                  </div>
+                </div>
+              </ScrollArea>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    // Sources Section with Fixed Dark Mode for URLs
+    if (sources?.length > 0) {
+      const initialSourcesCount = 3;
+      const displayedSources = showAllSources ? sources : sources.slice(0, initialSourcesCount);
+      const hasMoreSources = sources.length > initialSourcesCount;
+
+      sections.push(
+        <Card key="sources" className="bg-card border-border">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Globe className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              Source References
+              <Badge variant="outline" className="ml-2 border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300">
+                {sources.length} sources
+              </Badge>
+            </CardTitle>
+            <CardDescription>
+              Verified and authoritative sources used in research
+              {hasMoreSources && !showAllSources && (
+                <span className="text-muted-foreground">
+                  {' '}• Showing {initialSourcesCount} of {sources.length} sources
+                </span>
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {displayedSources.map((source, idx) => {
+                const urlCitation = source.url_citation || source;
+                const actualIndex = showAllSources ? idx : idx;
+                return (
+                  <div key={idx} className="bg-muted/50 border border-border rounded-lg p-4 hover:bg-muted/80 transition-colors duration-200 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <Badge variant="outline" className="shrink-0 mt-1 border-indigo-300 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/50">
+                        [{actualIndex + 1}]
+                      </Badge>
+                      <div className="flex-1 min-w-0 space-y-3">
+                        <h4 className="font-medium text-sm leading-tight text-foreground">
+                          {urlCitation.title || `Source ${actualIndex + 1}`}
+                        </h4>
+                        {urlCitation.url && (
+                          <div className="flex items-center gap-2">
+                            <ExternalLink className="h-3 w-3 text-indigo-500 dark:text-indigo-400 shrink-0" />
+                            <code className="text-xs bg-background border border-border text-foreground px-2 py-1 rounded font-mono max-w-full overflow-hidden">
+                              <span className="block truncate" title={urlCitation.url}>
+                                {truncateUrl(urlCitation.url, 80)}
+                              </span>
+                            </code>
                           </div>
-                        ))}
+                        )}
+                        {source.content && (
+                          <p className="text-sm text-muted-foreground leading-relaxed bg-background/50 border border-border p-3 rounded">
+                            {source.content.substring(0, 200)}
+                            {source.content.length > 200 && '...'}
+                          </p>
+                        )}
                       </div>
                     </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          }
-          
-          // Handle company knowledge
-          if (item?.response || typeof item === 'string') {
-            const responseText = item?.response || item;
-            
-            console.log(`✅ Found company knowledge: ${responseText.substring(0, 100)}...`);
-            
-            return (
-              <Card key={`knowledge-${index}`} className="bg-gradient-to-br from-emerald-900/60 to-green-800/40 border-l-4 border-l-emerald-500 border border-emerald-700/50 shadow-2xl backdrop-blur-sm hover:shadow-emerald-500/10 hover:shadow-3xl transition-all duration-300">
-                <CardHeader className="pb-4 bg-gradient-to-r from-emerald-950/30 to-green-900/30 rounded-t-lg">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-gradient-to-br from-emerald-500/20 to-green-600/20 rounded-xl backdrop-blur-sm border border-emerald-500/30">
-                      <Shield className="h-6 w-6 text-emerald-300" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-xl font-bold bg-gradient-to-r from-emerald-200 to-green-200 bg-clip-text text-transparent">
-                        Company Intelligence
-                      </CardTitle>
-                      <CardDescription className="text-emerald-300/80 text-base font-medium">
-                        Internal knowledge base and proprietary insights
-                      </CardDescription>
-                    </div>
                   </div>
-                </CardHeader>
-                
-                <CardContent className="p-6">
-                  <div className="p-6 bg-gradient-to-br from-slate-800/30 to-emerald-900/20 rounded-xl border border-emerald-700/30 backdrop-blur-sm">
-                    <div className="flex items-start gap-4">
-                      <div className="p-2 bg-emerald-500/20 rounded-lg flex-shrink-0">
-                        <Quote className="h-5 w-5 text-emerald-300" />
-                      </div>
-                      <p className="text-slate-100 leading-relaxed text-sm font-medium">
-                        {responseText}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          }
+                );
+              })}
+            </div>
 
-          // Handle unknown formats
-          console.log(`⚠️ Unknown research item format at index ${index}:`, item);
-          return (
-            <Card key={`unknown-${index}`} className="bg-gradient-to-br from-slate-800/60 to-slate-700/40 border-l-4 border-l-amber-500 border border-slate-600/50 backdrop-blur-sm">
-              <CardHeader className="bg-gradient-to-r from-amber-950/30 to-slate-900/30 rounded-t-lg">
-                <CardTitle className="text-amber-200 flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5" />
-                  Unknown Data Format
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-6">
-                <pre className="text-xs bg-slate-900/50 p-4 rounded-lg overflow-x-auto text-slate-300 border border-slate-700/50">
-                  {JSON.stringify(item, null, 2)}
-                </pre>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-    );
+            {/* Show More/Less Button */}
+            {hasMoreSources && (
+              <div className="mt-6 flex justify-center">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAllSources(!showAllSources)}
+                  className="flex items-center gap-2 border-indigo-300 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
+                >
+                  {showAllSources ? (
+                    <>
+                      <ChevronUp className="h-4 w-4" />
+                      Show Less Sources
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-4 w-4" />
+                      Show {sources.length - initialSourcesCount} More Sources
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      );
+    }
+
+    // Debug section - show if no main sections found
+    if (sections.length === 0) {
+      sections.push(
+        <Card key="debug" className="border-orange-200 dark:border-orange-800">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Database className="h-5 w-5 text-orange-600" />
+              Debug: Raw Research Data
+            </CardTitle>
+            <CardDescription>
+              Debug information - showing raw data structure
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="h-96 w-full">
+              <pre className="text-xs text-muted-foreground whitespace-pre-wrap bg-muted/50 border border-border p-4 rounded-lg font-mono">
+                {JSON.stringify(researchData, null, 2)}
+              </pre>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    return <div className="space-y-6">{sections}</div>;
   };
 
-  if (!workflowStatus) {
+  const researchData = workflowStatus?.research_data;
+  const attemptNumber = workflowStatus?.attempt_number ?? 1;
+
+  if (processing) {
     return (
-      <Card className="w-full max-w-4xl mx-auto bg-gradient-to-br from-slate-900 to-slate-800 border-slate-700">
-        <CardContent className="flex items-center justify-center py-16">
-          <div className="text-center space-y-4">
-            <div className="relative">
-              <Spinner className="mx-auto h-8 w-8 text-blue-400" />
-              <div className="absolute inset-0 rounded-full bg-blue-500/20 animate-ping"></div>
-            </div>
-            <div>
-              <p className="text-slate-200 font-medium text-lg">Loading research data...</p>
-              <p className="text-slate-400 text-sm">Analyzing and processing insights</p>
-            </div>
-          </div>
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-12">
+          <Spinner className="h-8 w-8 mb-4 text-blue-600" />
+          <h3 className="text-lg font-semibold mb-2">Processing research data...</h3>
+          <p className="text-muted-foreground text-center">
+            Analyzing and formatting insights
+          </p>
         </CardContent>
       </Card>
     );
   }
 
-  const { selected_topic, selected_idea, research_data } = workflowStatus;
-
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-8 p-6">
-      {/* Header Section */}
-      <Card className="bg-gradient-to-br from-slate-900 via-blue-950/50 to-slate-900 border border-slate-700/50 shadow-2xl backdrop-blur-sm">
-        <CardHeader className="p-8">
-          <div className="flex items-center gap-6">
-            <div className="p-4 bg-gradient-to-br from-blue-500/20 to-purple-600/20 rounded-2xl backdrop-blur-sm border border-blue-500/30">
-              <Search className="h-8 w-8 text-blue-300" />
-            </div>
-            <div className="space-y-2">
-              <CardTitle className="text-3xl font-bold bg-gradient-to-r from-blue-200 via-purple-200 to-cyan-200 bg-clip-text text-transparent">
-                Research Review & Intelligence
-              </CardTitle>
-              <CardDescription className="text-slate-300 text-lg font-medium max-w-2xl">
-                Review comprehensive research findings and provide strategic feedback for content optimization
-              </CardDescription>
-            </div>
-          </div>
+    <div className="space-y-6">
+      {/* Header */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Search className="h-5 w-5" />
+            Research Review
+            {attemptNumber > 1 && (
+              <Badge variant="secondary">Attempt {attemptNumber}</Badge>
+            )}
+          </CardTitle>
+          <CardDescription>
+            Review the research findings and provide approval or feedback for improvements.
+          </CardDescription>
         </CardHeader>
       </Card>
 
-      {/* Topic Overview */}
-      <Card className="bg-gradient-to-br from-purple-950/40 via-slate-900 to-pink-950/40 border border-purple-700/50 shadow-xl backdrop-blur-sm">
-        <CardHeader className="p-6 bg-gradient-to-r from-purple-950/30 to-pink-950/30 rounded-t-lg">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-xl">
-              <Target className="h-6 w-6 text-purple-300" />
-            </div>
-            <div>
-              <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-200 to-pink-200 bg-clip-text text-transparent">
-                Content Strategy Overview
-              </CardTitle>
-              <CardDescription className="text-purple-300/80">
-                Selected topic and strategic direction
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-6 space-y-6">
-          {selected_topic && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="space-y-3">
-                <Label className="text-sm font-bold text-purple-200 uppercase tracking-wide">Content Title</Label>
-                <div className="p-4 bg-gradient-to-r from-slate-800/60 to-purple-900/30 rounded-lg border border-purple-700/30">
-                  <p className="text-slate-100 font-semibold text-lg">{selected_topic.title}</p>
-                </div>
-              </div>
-              <div className="space-y-3">
-                <Label className="text-sm font-bold text-purple-200 uppercase tracking-wide">Content Approach</Label>
-                <div className="p-4 bg-gradient-to-r from-slate-800/60 to-purple-900/30 rounded-lg border border-purple-700/30">
-                  <p className="text-slate-300 text-sm leading-relaxed">{selected_topic.content_approach}</p>
-                </div>
-              </div>
-              <div className="lg:col-span-2 space-y-3">
-                <Label className="text-sm font-bold text-purple-200 uppercase tracking-wide">Meta Description</Label>
-                <div className="p-4 bg-gradient-to-r from-slate-800/60 to-purple-900/30 rounded-lg border border-purple-700/30">
-                  <p className="text-slate-300 text-sm leading-relaxed">{selected_topic.meta_description}</p>
-                </div>
-              </div>
-            </div>
-          )}
-          
-          {selected_idea && (
-            <div className="mt-8 pt-6 border-t border-purple-700/30">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <Label className="text-sm font-bold text-pink-200 uppercase tracking-wide">Blog Concept</Label>
-                  <div className="p-4 bg-gradient-to-r from-slate-800/60 to-pink-900/30 rounded-lg border border-pink-700/30">
-                    <p className="text-slate-100 font-semibold">{selected_idea.idea_name}</p>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <Label className="text-sm font-bold text-pink-200 uppercase tracking-wide">Unique Angle</Label>
-                  <div className="p-4 bg-gradient-to-r from-slate-800/60 to-pink-900/30 rounded-lg border border-pink-700/30">
-                    <p className="text-slate-300 text-sm leading-relaxed">{selected_idea.unique_angle}</p>
-                  </div>
-                </div>
-                <div className="lg:col-span-2 space-y-3">
-                  <Label className="text-sm font-bold text-pink-200 uppercase tracking-wide">Strategic Description</Label>
-                  <div className="p-4 bg-gradient-to-r from-slate-800/60 to-pink-900/30 rounded-lg border border-pink-700/30">
-                    <p className="text-slate-300 text-sm leading-relaxed">{selected_idea.description}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Research Data */}
+      {renderResearchData(researchData)}
 
-      {/* Research Results */}
-      <Card className="bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700/50 shadow-xl backdrop-blur-sm">
-        <CardHeader className="p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-gradient-to-br from-cyan-500/20 to-blue-500/20 rounded-xl">
-                <Layers className="h-6 w-6 text-cyan-300" />
-              </div>
-              <div>
-                <CardTitle className="text-xl font-bold bg-gradient-to-r from-cyan-200 to-blue-200 bg-clip-text text-transparent">
-                  Research Intelligence Hub
-                </CardTitle>
-                <CardDescription className="text-slate-300">
-                  Comprehensive analysis and insights
-                </CardDescription>
-              </div>
-            </div>
-            <Badge className="bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-indigo-200 border-indigo-400/30 px-4 py-2 text-sm font-medium">
-              {workflowStatus?.attempt_number ? `Attempt ${workflowStatus.attempt_number}` : 'Initial Research'}
-            </Badge>
-          </div>
+      {/* Action Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Review Actions</CardTitle>
+          <CardDescription>
+            Approve the research or provide feedback for improvements.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="p-6">
-          {renderResearchData(research_data)}
-        </CardContent>
-      </Card>
-
-      {/* Action Buttons */}
-      <Card className="bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700/50 shadow-xl backdrop-blur-sm">
-        <CardHeader className="p-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-gradient-to-br from-yellow-500/20 to-orange-500/20 rounded-xl">
-              <Lightbulb className="h-6 w-6 text-yellow-300" />
-            </div>
-            <div>
-              <CardTitle className="text-xl font-bold text-slate-100">Strategic Review & Decision</CardTitle>
-              <CardDescription className="text-slate-300">
-                Provide feedback and approve or request strategic improvements
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-6 space-y-8">
-          {/* Feedback Section */}
-          <div className="space-y-4">
-            <Label htmlFor="research-feedback" className="text-base font-bold text-slate-200 uppercase tracking-wide">
-              Strategic Feedback (Optional)
-            </Label>
+        <CardContent className="space-y-4">
+          {/* Feedback Textarea */}
+          <div className="space-y-2">
+            <Label htmlFor="feedback">Research Feedback (Optional)</Label>
             <Textarea
-              id="research-feedback"
-              placeholder="Share strategic insights, quality assessments, or specific areas for enhancement..."
+              id="feedback"
+              placeholder="Provide specific feedback about the research quality, relevance, or suggestions for improvement..."
               value={researchFeedback}
               onChange={(e) => setResearchFeedback(e.target.value)}
-              className="min-h-[120px] resize-y bg-slate-800/50 border-slate-600/50 text-slate-100 placeholder:text-slate-400 focus:border-blue-500/50 focus:ring-blue-500/20 rounded-lg backdrop-blur-sm"
+              className="min-h-[100px] resize-none"
             />
+          </div>
+
+          <Separator />
+
+          {/* Action Buttons */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button
+              onClick={() => handleAction('approve')}
+              disabled={loading}
+              className="flex-1 bg-green-600 hover:bg-green-700"
+            >
+              {loading ? (
+                <Spinner className="h-4 w-4 mr-2" />
+              ) : (
+                <CheckCircle className="h-4 w-4 mr-2" />
+              )}
+              Approve Research
+            </Button>
+
+            <Button
+              variant="outline"
+              onClick={() => setShowRejectionForm(!showRejectionForm)}
+              disabled={loading}
+              className="flex-1"
+            >
+              <XCircle className="h-4 w-4 mr-2" />
+              Request Changes
+            </Button>
           </div>
 
           {/* Rejection Form */}
           {showRejectionForm && (
-            <div className="p-6 bg-gradient-to-r from-red-950/30 to-red-900/20 border border-red-800/50 rounded-xl space-y-4 backdrop-blur-sm">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-red-500/20 rounded-lg">
-                  <XCircle className="h-5 w-5 text-red-400" />
-                </div>
-                <Label className="text-red-200 font-bold text-lg">Request Strategic Improvements</Label>
+            <div className="space-y-4 pt-4 border-t">
+              <div className="space-y-2">
+                <Label htmlFor="rejection-feedback">Change Request Details</Label>
+                <Textarea
+                  id="rejection-feedback"
+                  placeholder="Please specify what changes or improvements are needed in the research..."
+                  value={rejectionFeedback}
+                  onChange={(e) => setRejectionFeedback(e.target.value)}
+                  className="min-h-[100px] resize-none"
+                  required
+                />
               </div>
-              <Textarea
-                placeholder="Provide specific feedback on research quality, depth, relevance, or strategic direction..."
-                value={rejectionFeedback}
-                onChange={(e) => setRejectionFeedback(e.target.value)}
-                className="min-h-[140px] bg-red-950/20 border-red-700/50 text-red-100 placeholder:text-red-300/70 focus:border-red-500/50 focus:ring-red-500/20 rounded-lg backdrop-blur-sm"
-                required
-              />
-            </div>
-          )}
-
-          {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-slate-700/50">
-            {!showRejectionForm ? (
-              <>
-                <Button
-                  onClick={() => handleAction('approve')}
-                  disabled={loading || processing}
-                  className="flex-1 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 shadow-lg hover:shadow-emerald-500/25"
-                >
-                  {loading ? (
-                    <>
-                      <Spinner className="mr-3 h-5 w-5" />
-                      Processing Decision...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle className="mr-3 h-5 w-5" />
-                      Approve Research
-                    </>
-                  )}
-                </Button>
-                <Button
-                  onClick={() => setShowRejectionForm(true)}
-                  variant="outline"
-                  disabled={loading || processing}
-                  className="flex-1 border-red-600/50 text-red-400 hover:bg-red-950/30 hover:border-red-500/70 hover:text-red-300 font-semibold py-3 px-6 rounded-lg transition-all duration-200 backdrop-blur-sm"
-                >
-                  <XCircle className="mr-3 h-5 w-5" />
-                  Request Improvements
-                </Button>
-              </>
-            ) : (
-              <div className="flex gap-4">
+              
+              <div className="flex gap-3">
                 <Button
                   onClick={() => handleAction('reject')}
-                  disabled={loading || processing || !rejectionFeedback.trim()}
-                  className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 shadow-lg hover:shadow-red-500/25"
+                  disabled={loading || !rejectionFeedback.trim()}
+                  variant="destructive"
+                  className="flex-1"
                 >
                   {loading ? (
-                    <>
-                      <Spinner className="mr-3 h-5 w-5" />
-                      Submitting Feedback...
-                    </>
+                    <Spinner className="h-4 w-4 mr-2" />
                   ) : (
-                    <>
-                      <XCircle className="mr-3 h-5 w-5" />
-                      Submit Improvements Request
-                    </>
+                    <XCircle className="h-4 w-4 mr-2" />
                   )}
+                  Submit Changes Request
                 </Button>
+                
                 <Button
+                  variant="outline"
                   onClick={() => {
                     setShowRejectionForm(false);
                     setRejectionFeedback('');
                   }}
-                  variant="outline"
-                  disabled={loading || processing}
-                  className="border-slate-600/50 text-slate-300 hover:bg-slate-800/50 hover:border-slate-500/70 font-semibold py-3 px-6 rounded-lg transition-all duration-200 backdrop-blur-sm"
+                  disabled={loading}
                 >
                   Cancel
                 </Button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </CardContent>
       </Card>
-
-      {/* Custom Scrollbar Styles */}
-      <style jsx>{`
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: rgba(51, 65, 85, 0.3);
-          border-radius: 3px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(59, 130, 246, 0.5);
-          border-radius: 3px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: rgba(59, 130, 246, 0.7);
-        }
-      `}</style>
     </div>
   );
 }
